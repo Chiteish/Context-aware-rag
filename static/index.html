@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DocuRAG Assistant</title>
+    <!-- Google Fonts: Outfit (headings) & Inter (UI/Body) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <!-- Marked.js for Markdown parsing -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body>
+    <div class="app-container">
+        <!-- Floating glow decorations -->
+        <div class="glow-orb orb-1"></div>
+        <div class="glow-orb orb-2"></div>
+
+        <!-- Sidebar Panel -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">
+                    <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <rect x="2" y="2" width="28" height="28" rx="8" fill="url(#logoGrad)" />
+                        <path d="M16 8V24M8 16H24M11 11L21 21M21 11L11 21" stroke="white" stroke-width="2.5" stroke-linecap="round" opacity="0.9"/>
+                        <defs>
+                            <linearGradient id="logoGrad" x1="2" y1="2" x2="30" y2="30" gradientUnits="userSpaceOnUse">
+                                <stop stop-color="#6366f1" />
+                                <stop offset="1" stop-color="#06b6d4" />
+                            </linearGradient>
+                        </defs>
+                    </svg>
+                    <span>DocuRAG</span>
+                </div>
+                <button class="mobile-close-btn" id="mobileCloseBtn">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                </button>
+            </div>
+
+            <div class="sidebar-content">
+                <!-- New Chat Button -->
+                <button class="btn btn-primary new-chat-btn" id="newChatBtn">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                    New Chat
+                </button>
+
+                <!-- Document Upload Card -->
+                <div class="card upload-card" id="sidebarUploadCard">
+                    <h3>Document Source</h3>
+                    <div class="file-upload-sidebar">
+                        <label for="sidebarFileInput" class="sidebar-upload-btn">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+                            Upload PDF
+                        </label>
+                        <input type="file" id="sidebarFileInput" accept=".pdf" style="display: none;">
+                    </div>
+                </div>
+
+                <!-- Status/Metadata Card -->
+                <div class="card status-card">
+                    <h3>Pipeline Status</h3>
+                    <div class="status-indicator">
+                        <span class="status-dot pulsing" id="statusDot"></span>
+                        <span class="status-text" id="statusText">Initializing...</span>
+                    </div>
+                    <hr>
+                    <div class="meta-row">
+                        <span class="meta-label">Document:</span>
+                        <span class="meta-val" id="metaDoc" title="-">-</span>
+                    </div>
+                    <div class="meta-row">
+                        <span class="meta-label">Vector Chunks:</span>
+                        <span class="meta-val" id="metaChunks">-</span>
+                    </div>
+                    <div class="meta-row">
+                        <span class="meta-label">Embeddings:</span>
+                        <span class="meta-val" id="metaEmbed">all-MiniLM-L6-v2</span>
+                    </div>
+                    <div class="meta-row">
+                        <span class="meta-label">LLM Model:</span>
+                        <span class="meta-val" id="metaLLM">mistral (Ollama)</span>
+                    </div>
+                </div>
+
+                <!-- Sources Panel -->
+                <div class="card sources-card">
+                    <div class="sources-card-header">
+                        <h3>Retrieved Sources</h3>
+                        <span class="badge" id="sourcesBadge">0</span>
+                    </div>
+                    <p class="sources-intro" id="sourcesIntro">Relevant chunks from the FAISS database will appear here when you query the model.</p>
+                    <div class="sources-list" id="sourcesList">
+                        <!-- Source items dynamically injected here -->
+                    </div>
+                </div>
+            </div>
+
+            <div class="sidebar-footer">
+                <button class="btn btn-secondary" id="clearBtn">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6"/></svg>
+                    Clear Chat History
+                </button>
+            </div>
+        </aside>
+
+        <!-- Main Chat Area -->
+        <main class="chat-area">
+            <header class="chat-header">
+                <div class="chat-header-info">
+                    <button class="mobile-menu-btn" id="mobileMenuBtn">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+                    </button>
+                    <div>
+                        <h2>Document RAG Assistant</h2>
+                        <div class="chat-header-status">
+                            <span class="active-dot"></span>
+                            <span id="headerStatus">System active</span>
+                        </div>
+                    </div>
+                </div>
+            </header>
+
+            <!-- Conversation window -->
+            <div class="messages-container" id="messagesContainer">
+                <!-- Welcome Screen -->
+                <div class="welcome-screen" id="welcomeScreen">
+                    <div class="welcome-icon">
+                        <svg width="64" height="64" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <rect width="32" height="32" rx="10" fill="url(#welcomeGrad)" />
+                            <path d="M16 8V24M8 16H24M11 11L21 21M21 11L11 21" stroke="white" stroke-width="2.5" stroke-linecap="round" opacity="0.9"/>
+                            <defs>
+                                <linearGradient id="welcomeGrad" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
+                                    <stop stop-color="#6366f1" />
+                                    <stop offset="1" stop-color="#06b6d4" />
+                                </linearGradient>
+                            </defs>
+                        </svg>
+                    </div>
+                    
+                    <!-- State A: No document uploaded -->
+                    <div id="uploadPromptState" class="welcome-state">
+                        <h1>Upload a PDF to Begin</h1>
+                        <p>Upload a PDF document to initialize the RAG pipeline. The application will process, split, and embed the text locally using FAISS so you can search and chat with it.</p>
+                        
+                        <div class="drag-drop-zone" id="dragDropZone">
+                            <div class="upload-icon-wrapper">
+                                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+                            </div>
+                            <h3>Drag & Drop your PDF here</h3>
+                            <p>or click to browse files</p>
+                            <span class="file-spec">Supports PDF files</span>
+                            <input type="file" id="mainFileInput" accept=".pdf" style="display: none;">
+                        </div>
+
+                        <!-- Progress Bar / Spinner -->
+                        <div class="upload-progress-container" id="uploadProgress" style="display: none;">
+                            <div class="spinner-glow"></div>
+                            <h4 id="uploadProgressText">Processing PDF...</h4>
+                            <p>This will load, chunk, and create text embeddings. Please wait.</p>
+                        </div>
+                    </div>
+
+                    <!-- State B: Document loaded, ready for QA -->
+                    <div id="readyPromptState" class="welcome-state" style="display: none;">
+                        <h1>Document RAG Agent</h1>
+                        <p>Ask questions about the content of your uploaded document. Answers are backed by text segments with citation page references.</p>
+                        
+                        <div class="suggestions-grid">
+                            <div class="suggestion-card" data-query="Summarize the main points of this document.">
+                                <h4>Summarize Document</h4>
+                                <p>Generate a concise summary of the key themes.</p>
+                            </div>
+                            <div class="suggestion-card" data-query="What are the key terms or definitions introduced in the text?">
+                                <h4>Key Concepts</h4>
+                                <p>Identify definitions and terminology.</p>
+                            </div>
+                            <div class="suggestion-card" data-query="List the core findings or conclusions of this document.">
+                                <h4>Main Takeaways</h4>
+                                <p>Extract the primary findings and results.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Messages will load dynamically here -->
+            </div>
+
+            <!-- Floating input form -->
+            <footer class="input-area">
+                <form id="chatForm" class="input-form">
+                    <div class="input-wrapper">
+                        <textarea 
+                            id="queryInput" 
+                            placeholder="Please upload a PDF document to begin..." 
+                            rows="1"
+                            disabled
+                            required
+                        ></textarea>
+                        <button type="submit" class="send-btn" id="sendBtn" title="Send message" disabled>
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+                        </button>
+                    </div>
+                </form>
+                <div class="input-footer">
+                    <span>Powered by LangChain & FAISS &bull; Ollama Mistral LLM</span>
+                </div>
+            </footer>
+        </main>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
