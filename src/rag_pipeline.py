@@ -1,5 +1,5 @@
 """Simple RAG pipeline tailored for LangChain v1.x."""
-
+import os
 from langchain_core.chat_history import InMemoryChatMessageHistory
 from langchain_ollama import ChatOllama
 from langchain_core.messages import HumanMessage, AIMessage
@@ -16,7 +16,24 @@ def build_rag_chain(retriever):
         retriever: a LangChain retriever (e.g. FAISS.as_retriever()).
     """
 
-    llm = ChatOllama(model="mistral")
+    llm = ChatOllama(
+    model="mistral",
+    base_url=os.getenv(
+        "OLLAMA_BASE_URL",
+        "http://localhost:11434"
+    ),
+    client_kwargs=(
+        {
+            "headers": {
+                "Authorization": (
+                    "Bearer " + os.environ["OLLAMA_PROXY_TOKEN"]
+                )
+            }
+        }
+        if os.getenv("OLLAMA_PROXY_TOKEN")
+        else {}
+    )
+)
     memory = InMemoryChatMessageHistory()
 
     class SimpleRAG:
