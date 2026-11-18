@@ -56,7 +56,7 @@ def get_or_create_session(session_id: str):
     session_metadata = {
         "document_name": "",
         "chunks_count": 0,
-        "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
+        "embedding_model": "gemini-embedding-001 (Google AI)",
         "llm_model": "openai/gpt-oss-120b (Groq)",
         "status": "awaiting_document"
     }
@@ -365,161 +365,84 @@ async def chat(request: ChatRequest):
 
         from langchain_core.messages import HumanMessage, AIMessage
 
-        def event_generator():
+        async def event_generator():
+            try:
+                # 1. GET VECTOR STORE
+                vector_store = qa_chain.retriever.vectorstore
+                total_chunks = vector_store.index.ntotal
 
-            # ------------------------------------------
-            # 1. GET VECTOR STORE
-            # ------------------------------------------
+                # 2. DETECT QUESTION TYPE
+                if is_broad_question(query):
+                    k = 20
+                    retrieval_mode = "Broad"
+                    print("Broad question detected")
+                else:
+                    k = 3
+                    retrieval_mode = "Specific"
+                    print("Specific question detected")
 
-            vector_store = qa_chain.retriever.vectorstore
+                k = min(k, total_chunks)
 
-            total_chunks = vector_store.index.ntotal
+                print("\n========== RETRIEVAL DEBUG ==========")
+                print("USER QUERY:", query)
+                print("RETRIEVAL MODE:", retrieval_mode)
+                print("RETRIEVAL K:", k)
+                print("TOTAL DOCUMENT CHUNKS:", total_chunks)
 
-            # ------------------------------------------
-            # 2. DETECT QUESTION TYPE
-            # ------------------------------------------
+                # 3. CREATE DYNAMIC RETRIEVER
+                dynamic_retriever = get_retriever(vector_store, k=k)
 
-            if is_broad_question(query):
+                # 4. RETRIEVE DOCUMENTS (in threadpool — Google API call)
+                docs = await run_in_threadpool(dynamic_retriever.invoke, query)
 
-                k = 20
-                retrieval_mode = "Broad"
+                print("TOTAL CHUNKS RETRIEVED:", len(docs))
+                for i, doc in enumerate(docs, start=1):
+                    page_number = doc.metadata.get("page", 0)
+                    print(f"\n--- CHUNK {i} ---")
+                    print("Page:", page_number + 1)
+                    print(doc.page_content[:300])
+                print("\n====================================\n")
 
-                print("Broad question detected")
-
-            else:
-
-                k = 3
-                retrieval_mode = "Specific"
-
-                print("Specific question detected")
-
-            # Do not request more chunks than exist
-            k = min(k, total_chunks)
-
-            # ------------------------------------------
-            # 3. RETRIEVAL DEBUG INFORMATION
-            # ------------------------------------------
-
-            print("\n========== RETRIEVAL DEBUG ==========")
-
-            print("USER QUERY:", query)
-            print("RETRIEVAL MODE:", retrieval_mode)
-            print("RETRIEVAL K:", k)
-            print("TOTAL DOCUMENT CHUNKS:", total_chunks)
-
-            # ------------------------------------------
-            # 4. CREATE DYNAMIC RETRIEVER
-            # ------------------------------------------
-
-            dynamic_retriever = get_retriever(
-                vector_store,
-                k=k
-            )
-
-            # ------------------------------------------
-            # 5. RETRIEVE DOCUMENTS
-            # ------------------------------------------
-
-            docs = dynamic_retriever.invoke(query)
-
-            print("TOTAL CHUNKS RETRIEVED:", len(docs))
-
-            for i, doc in enumerate(docs, start=1):
-
-                page_number = doc.metadata.get("page", 0)
-
-                print(f"\n--- CHUNK {i} ---")
-                print("Page:", page_number + 1)
-                print("Content:")
-                print(doc.page_content[:500])
-
-            print("\n====================================\n")
-
-            # ------------------------------------------
-            # 6. FORMAT SOURCES
-            # ------------------------------------------
-
-            sources = []
-
-            for doc in docs:
-
-                page = doc.metadata.get("page", 0)
-
-                source_file = os.path.basename(
-                    doc.metadata.get(
-                        "source",
-                        session_metadata["document_name"]
+                # 5. FORMAT SOURCES
+                sources = []
+                for doc in docs:
+                    page = doc.metadata.get("page", 0)
+                    source_file = os.path.basename(
+                        doc.metadata.get("source", session_metadata["document_name"])
                     )
-                )
+                    sources.append({
+                        "page_content": doc.page_content,
+                        "page": page + 1,
+                        "source": source_file
+                    })
 
-                sources.append({
-                    "page_content": doc.page_content,
-                    "page": page + 1,
-                    "source": source_file
-                })
+                yield f"data: {json.dumps({'type': 'sources', 'sources': sources})}\n\n"
 
-            # Send sources through SSE
-            yield (
-                f"data: {json.dumps({'type': 'sources', 'sources': sources})}\n\n"
-            )
+                # 6. BUILD CONVERSATION HISTORY
+                history_lines = []
+                for m in qa_chain.memory.messages:
+                    if isinstance(m, HumanMessage):
+                        history_lines.append(f"User: {m.content}")
+                    elif isinstance(m, AIMessage):
+                        history_lines.append(f"AI: {m.content}")
+                history_text = "\n".join(history_lines) or "No previous conversation."
 
-            # ------------------------------------------
-            # 7. BUILD CONVERSATION HISTORY
-            # ------------------------------------------
+                # 7. BUILD CONTEXT
+                context = "\n\n".join(doc.page_content for doc in docs)
 
-            history_lines = []
-
-            for m in qa_chain.memory.messages:
-
-                if isinstance(m, HumanMessage):
-                    history_lines.append(f"User: {m.content}")
-
-                elif isinstance(m, AIMessage):
-                    history_lines.append(f"AI: {m.content}")
-
-            history_text = "\n".join(history_lines)
-
-            if not history_text:
-                history_text = "No previous conversation."
-
-            # ------------------------------------------
-            # 8. BUILD DOCUMENT CONTEXT
-            # ------------------------------------------
-
-            context = "\n\n".join(
-                doc.page_content for doc in docs
-            )
-
-            # ------------------------------------------
-            # 9. CREATE PROMPT
-            # ------------------------------------------
-
-            prompt = f"""
-You are a document-based question-answering assistant.
-
-Your task is to answer the user's question using the uploaded
-document context.
+                # 8. BUILD PROMPT
+                prompt = f"""You are a document-based question-answering assistant.
 
 STRICT RULES:
-
 1. Answer using only information supported by the document context.
 2. Do not invent facts or add information from outside the document.
-3. Do not repeat a previous answer without checking the current question.
-4. Answer the current question directly.
-5. Use clear and simple explanations.
-6. Organize broad answers using headings and bullet points.
-7. For broad questions, cover all major topics that are actually
-   represented in the supplied context.
-8. For specific questions, focus only on the relevant information.
-9. If the answer is not available in the context, say:
-   "I couldn't find this information in the uploaded document."
+3. Answer the current question directly.
+4. Use clear and simple explanations.
+5. Organize broad answers using headings and bullet points.
+6. If the answer is not in the context, say: "I couldn't find this information in the uploaded document."
 
 CONVERSATION HISTORY:
 {history_text}
-
-IMPORTANT:
-Conversation history is only for understanding follow-up questions.
-Do not use it as a source of factual information.
 
 UPLOADED DOCUMENT CONTEXT:
 {context}
@@ -530,47 +453,48 @@ CURRENT USER QUESTION:
 ANSWER:
 """
 
-            # ------------------------------------------
-            # 10. STREAM RESPONSE FROM GROQ
-            # ------------------------------------------
+                # 9. STREAM FROM GROQ (blocking — run in background thread)
+                import queue
+                import threading
 
-            full_answer = ""
+                full_answer = ""
+                token_queue = queue.Queue()
 
-            for chunk in qa_chain.llm.stream(prompt):
+                def run_stream():
+                    try:
+                        for chunk in qa_chain.llm.stream(prompt):
+                            token = chunk.content if hasattr(chunk, "content") else str(chunk)
+                            token_queue.put(token)
+                    except Exception as ex:
+                        token_queue.put(ex)
+                    finally:
+                        token_queue.put(None)  # sentinel
 
-                if hasattr(chunk, "content"):
-                    token = chunk.content
-                else:
-                    token = str(chunk)
+                threading.Thread(target=run_stream, daemon=True).start()
 
-                # Ignore empty or non-text chunks
-                if not token or not isinstance(token, str):
-                    continue
+                while True:
+                    token = await run_in_threadpool(token_queue.get)
+                    if token is None:
+                        break
+                    if isinstance(token, Exception):
+                        raise token
+                    if not token or not isinstance(token, str):
+                        continue
+                    full_answer += token
+                    yield f"data: {json.dumps({'type': 'token', 'token': token})}\n\n"
 
-                full_answer += token
+                # 10. SAVE MEMORY
+                if full_answer.strip():
+                    qa_chain.memory.add_user_message(query)
+                    qa_chain.memory.add_ai_message(full_answer)
 
-                # Send token through SSE
-                yield (
-                    f"data: {json.dumps({'type': 'token', 'token': token})}\n\n"
-                )
+                yield f"data: {json.dumps({'type': 'done'})}\n\n"
 
-            # ------------------------------------------
-            # 11. SAVE CONVERSATION MEMORY
-            # ------------------------------------------
-
-            if full_answer.strip():
-
-                qa_chain.memory.add_user_message(query)
-
-                qa_chain.memory.add_ai_message(full_answer)
-
-            # ------------------------------------------
-            # 12. FINISH STREAM
-            # ------------------------------------------
-
-            yield (
-                f"data: {json.dumps({'type': 'done'})}\n\n"
-            )
+            except Exception as e:
+                # Send the real error through SSE instead of dropping connection
+                err_msg = str(e)
+                print(f"[event_generator ERROR] {err_msg}")
+                yield f"data: {json.dumps({'type': 'error', 'message': err_msg})}\n\n"
 
         return StreamingResponse(
             event_generator(),

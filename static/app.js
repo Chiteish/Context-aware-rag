@@ -460,6 +460,10 @@ document.addEventListener('DOMContentLoaded', () => {
                                 top: messagesContainer.scrollHeight,
                                 behavior: 'auto'
                             });
+                        } else if (parsed.type === 'error') {
+                            // Server sent a real error message through SSE
+                            messageBubble.innerHTML = `<p style="color:#ef4444;font-weight:500;">Error from server:</p><p>${parsed.message}</p>`;
+                            console.error('SSE server error:', parsed.message);
                         }
                     } catch (err) {
                         console.error('Error parsing line data:', err);

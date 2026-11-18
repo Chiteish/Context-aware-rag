@@ -2,6 +2,9 @@ from langchain_community.vectorstores import FAISS
 
 
 def create_vector_store(chunks, embedding_model):
+    if not chunks:
+        raise ValueError("No text chunks found to index. The document might be empty or image-only.")
+
     # Embed in small batches to avoid RAM spike on Render free tier
     # Instead of embedding all chunks at once, we build FAISS incrementally
     BATCH_SIZE = 32
