@@ -14,8 +14,8 @@ def split_documents(documents):
         doc.page_content = clean_text(doc.page_content)
 
     text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=800,
-        chunk_overlap=150
+        chunk_size=600,    # reduced from 800 — fewer tokens per chunk = lower RAM per batch
+        chunk_overlap=100  # reduced from 150
     )
 
     chunks = text_splitter.split_documents(documents)
