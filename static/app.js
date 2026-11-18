@@ -205,8 +205,19 @@ document.addEventListener('DOMContentLoaded', () => {
             });
 
             if (!response.ok) {
-                const errData = await response.json();
-                throw new Error(errData.detail || 'Upload failed');
+                let errorMsg = `Server error (${response.status} ${response.statusText})`;
+                try {
+                    const errData = await response.json();
+                    errorMsg = errData.detail || errorMsg;
+                } catch (_) {
+                    // Response body was empty or not JSON (e.g. 502 from Render OOM)
+                    if (response.status === 502) {
+                        errorMsg = 'Server ran out of memory (502). Try a smaller PDF.';
+                    } else if (response.status === 503) {
+                        errorMsg = 'Server unavailable (503). It may be starting up — wait 30s and retry.';
+                    }
+                }
+                throw new Error(errorMsg);
             }
 
             // Immediately check status

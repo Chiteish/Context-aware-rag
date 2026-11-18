@@ -1,19 +1,32 @@
 
+import os
 from functools import lru_cache
-from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_groq import ChatGroq
+from langchain_community.embeddings import CohereEmbeddings
+
+
+# Lightweight wrapper: calls Groq's embedding endpoint — no local PyTorch model loaded.
+# This keeps RAM usage under Render's 512MB free tier limit.
+class GroqEmbeddings:
+    """Calls Groq's OpenAI-compatible embeddings endpoint."""
+
+    def __init__(self, model: str = "nomic-ai/nomic-embed-text-v1.5"):
+        from groq import Groq
+        self.client = Groq(api_key=os.environ["GROQ_API_KEY"])
+        self.model = model
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        response = self.client.embeddings.create(
+            model=self.model,
+            input=texts,
+        )
+        return [item.embedding for item in response.data]
+
+    def embed_query(self, text: str) -> list[float]:
+        return self.embed_documents([text])[0]
 
 
 @lru_cache(maxsize=1)
 def get_embeddings_model():
-    # all-MiniLM-L2-v2 is ~80MB vs ~400MB for L6-v2
-    # Same quality for RAG, much lower memory — critical for Render free tier
-    embedding_model = HuggingFaceEmbeddings(
-        model_name="sentence-transformers/all-MiniLM-L2-v2",
-        model_kwargs={"device": "cpu"},
-        encode_kwargs={
-            "batch_size": 2,          # smaller batch = lower peak RAM during embedding
-            "normalize_embeddings": True
-        }
-    )
+    return GroqEmbeddings()
 
-    return embedding_model
